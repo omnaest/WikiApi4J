@@ -15,6 +15,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.omnaest.utils.CacheUtils;
 import org.omnaest.utils.CollectorUtils;
 import org.omnaest.utils.JSONHelper;
+import org.omnaest.utils.ListUtils;
 import org.omnaest.utils.PredicateUtils;
 import org.omnaest.utils.StreamUtils;
 import org.omnaest.utils.cache.Cache;
@@ -342,7 +343,8 @@ public class WikiUtils
         {
             private ItemDocumentFetcher parent;
             private Cache               cache = CacheUtils.newConcurrentInMemoryCache()
-                                                          .withCapacityLimit(10000, EvictionStrategy.RANDOM);
+                                                          .withCapacityLimit(10000, EvictionStrategy.RANDOM)
+                                                          .withEvictionRatio(0.8);
 
             public ItemDocumentFetcherCacheImpl(ItemDocumentFetcher parent)
             {
@@ -354,6 +356,7 @@ public class WikiUtils
             public Map<String, ItemDocument> apply(List<String> entityIds)
             {
                 return entityIds.stream()
+                                .distinct()
                                 .map(entityId ->
                                 {
                                     ItemDocument document = Optional.ofNullable(this.cache.get(entityId, ItemDocument.class))
@@ -447,7 +450,7 @@ public class WikiUtils
             public Optional<StatementResult> getStatement(SPARQLProperties property)
             {
                 Statement statement = this.itemDocumentResolver.apply(this.entityId)
-                                                               .findStatement(property.get());
+                                                               .findStatement(ListUtils.first(property.get()));
 
                 return Optional.ofNullable(statement)
                                .map(iStatement -> new StatementResult()

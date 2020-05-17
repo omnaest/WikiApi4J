@@ -56,7 +56,7 @@ public class WikiUtilsTest
     }
 
     @Test
-    //    @Ignore
+    @Ignore
     public void testPerson() throws Exception
     {
         Cache cache = NitriteRepositoryUtils.newLocalCache("persons");
@@ -110,6 +110,36 @@ public class WikiUtilsTest
                                                    .orElse(null);
                              System.out.println(t + " : " + homepage);
                              cache.put(t, homepage);
+                         });
+                 });
+
+    }
+
+    @Test
+    //    @Ignore
+    public void testDrugs() throws Exception
+    {
+        Cache cache = NitriteRepositoryUtils.newLocalCache("drug");
+
+        AtomicInteger counter = new AtomicInteger();
+
+        WikiUtils.newInstance()
+                 .connectToWikiDataAndWikipedia()
+                 .usingLocalCache()
+                 .searchFor(SPARQLFilters.INSTANCE_OF_DRUG)
+                 .stream()
+                 .skip(0)
+                 //                 .limit(100)
+                 .forEach(item ->
+                 {
+                     System.out.println("----------- " + counter.incrementAndGet() + " -------------");
+                     item.getTitle()
+                         .ifPresent(t ->
+                         {
+                             String description = item.getDescription()
+                                                      .orElse(null);
+                             System.out.println(t + " : " + description);
+                             cache.put(t, description);
                          });
                  });
 

@@ -13,6 +13,7 @@ import java.util.stream.Stream;
 
 import org.apache.commons.lang3.RegExUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.omnaest.utils.ListUtils;
 import org.omnaest.utils.PredicateUtils;
 import org.omnaest.utils.StreamUtils;
 import org.omnaest.utils.rest.client.RestClient;
@@ -188,11 +189,15 @@ public class WikiRESTUtils
     {
         public static SPARQLFilterValueProvider of(SPARQLPropertyValueProvider property, SPARQLObjectValueProvider objects)
         {
-            return () -> "wdt:" + property.get() + " wd:" + objects.get();
+            return () -> property.get()
+                                 .stream()
+                                 .map(value -> "wdt:" + value)
+                                 .collect(Collectors.joining("/"))
+                    + " wd:" + objects.get();
         }
     }
 
-    public static interface SPARQLPropertyValueProvider extends Supplier<String>
+    public static interface SPARQLPropertyValueProvider extends Supplier<List<String>>
     {
     }
 
@@ -202,19 +207,28 @@ public class WikiRESTUtils
 
     public static enum SPARQLProperties implements SPARQLPropertyValueProvider
     {
-        INSTANCE_OF("P31"), FIELD_OF_WORK("P101"), COUNTRY("P17"), CITY("P131"), CONTINENT("P30"), COORDINATE("P625"), OFFICIAL_WEBSITE("P856");
+        INSTANCE_OF("P31", "P279*"),
+        EXACT_INSTANCE_OF("P31"),
+        FIELD_OF_WORK("P101"),
+        COUNTRY("P17"),
+        CITY("P131"),
+        CONTINENT("P30"),
+        COORDINATE("P625"),
+        OFFICIAL_WEBSITE("P856");
 
-        private String value;
+        private String   value;
+        private String[] additionalValues;
 
-        private SPARQLProperties(String value)
+        private SPARQLProperties(String value, String... additionalValues)
         {
             this.value = value;
+            this.additionalValues = additionalValues;
         }
 
         @Override
-        public String get()
+        public List<String> get()
         {
-            return this.value;
+            return ListUtils.addToNew(ListUtils.toList(this.additionalValues), 0, this.value);
         }
     }
 
@@ -228,7 +242,9 @@ public class WikiRESTUtils
         MEDICAL_RESEARCH_INSTITUTE("Q66737615"),
         MEDICAL_RESEARCH("Q2752427"),
         EUROPE("Q46"),
-        GERMANY("Q183");
+        GERMANY("Q183"),
+        DRUG("Q8386"),
+        MEDICATION("Q12140");
 
         private String value;
 
@@ -248,6 +264,8 @@ public class WikiRESTUtils
     {
         INSTANCE_OF_HUMAN(SPARQLProperties.INSTANCE_OF, SPARQLObjects.HUMAN),
         INSTANCE_OF_HOSPITAL(SPARQLProperties.INSTANCE_OF, SPARQLObjects.HOSPITAL),
+        INSTANCE_OF_DRUG(SPARQLProperties.INSTANCE_OF, SPARQLObjects.DRUG),
+        INSTANCE_OF_MEDICATION(SPARQLProperties.INSTANCE_OF, SPARQLObjects.MEDICATION),
         INSTANCE_OF_UNIVERSITY_HOSPITAL(SPARQLProperties.INSTANCE_OF, SPARQLObjects.UNIVERSITY_HOSPITAL),
         INSTANCE_OF_UNIVERSITY(SPARQLProperties.INSTANCE_OF, SPARQLObjects.UNIVERSITY),
         INSTANCE_OF_RESEARCH_INSTITUTE(SPARQLProperties.INSTANCE_OF, SPARQLObjects.RESEARCH_INSTITUTE),
