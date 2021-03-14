@@ -1,3 +1,18 @@
+/*******************************************************************************
+ * Copyright 2021 Danny Kunz
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not
+ * use this file except in compliance with the License.  You may obtain a copy
+ * of the License at
+ * 
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+ * License for the specific language governing permissions and limitations under
+ * the License.
+ ******************************************************************************/
 package org.omnaest.wiki;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -116,7 +131,7 @@ public class WikiUtilsTest
     }
 
     @Test
-    //    @Ignore
+    @Ignore
     public void testDrugs() throws Exception
     {
         Cache cache = NitriteRepositoryUtils.newLocalCache("drug");
@@ -140,6 +155,39 @@ public class WikiUtilsTest
                                                       .orElse(null);
                              System.out.println(t + " : " + description);
                              cache.put(t, description);
+                         });
+                 });
+
+    }
+
+    @Test
+    //    @Ignore
+    public void testWikiTexts() throws Exception
+    {
+        Cache cache = NitriteRepositoryUtils.newLocalCache("texts");
+
+        AtomicInteger counter = new AtomicInteger();
+
+        WikiUtils.newInstance()
+                 .connectToWikiDataAndWikipedia()
+                 .usingLocalCache()
+                 .searchFor(SPARQLFilters.INSTANCE_OF_HUMAN)
+                 .stream()
+                 .skip(1000)
+                 .limit(50000)
+                 .forEach(item ->
+                 {
+                     System.out.println("----------- " + counter.incrementAndGet() + " -------------");
+                     item.getTitle()
+                         .ifPresent(title ->
+                         {
+                             System.out.println(title);
+                             item.resolveText()
+                                 .ifPresent(text ->
+                                 {
+                                     cache.put(title, text);
+                                     System.out.println(text);
+                                 });
                          });
                  });
 

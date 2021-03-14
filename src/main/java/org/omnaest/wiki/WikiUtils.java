@@ -1,8 +1,22 @@
+/*******************************************************************************
+ * Copyright 2021 Danny Kunz
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not
+ * use this file except in compliance with the License.  You may obtain a copy
+ * of the License at
+ * 
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+ * License for the specific language governing permissions and limitations under
+ * the License.
+ ******************************************************************************/
 package org.omnaest.wiki;
 
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -14,8 +28,6 @@ import org.apache.commons.lang3.RegExUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.omnaest.utils.CacheUtils;
 import org.omnaest.utils.CollectorUtils;
-import org.omnaest.utils.JSONHelper;
-import org.omnaest.utils.ListUtils;
 import org.omnaest.utils.PredicateUtils;
 import org.omnaest.utils.StreamUtils;
 import org.omnaest.utils.cache.Cache;
@@ -24,6 +36,8 @@ import org.omnaest.utils.element.bi.BiElement;
 import org.omnaest.utils.element.cached.CachedElement;
 import org.omnaest.utils.html.HtmlUtils;
 import org.omnaest.utils.html.HtmlUtils.HtmlDocumentLoader;
+import org.omnaest.utils.rest.client.RestHelper.RESTAccessExeption;
+import org.omnaest.utils.stream.Streamable;
 import org.omnaest.utils.supplier.EnumSupplier;
 import org.omnaest.wiki.rest.WikiRESTUtils;
 import org.omnaest.wiki.rest.WikiRESTUtils.Binding;
@@ -38,9 +52,9 @@ import org.wikidata.wdtk.datamodel.interfaces.EntityDocument;
 import org.wikidata.wdtk.datamodel.interfaces.EntityIdValue;
 import org.wikidata.wdtk.datamodel.interfaces.ItemDocument;
 import org.wikidata.wdtk.datamodel.interfaces.MonolingualTextValue;
-import org.wikidata.wdtk.datamodel.interfaces.SiteLink;
-import org.wikidata.wdtk.datamodel.interfaces.Statement;
+import org.wikidata.wdtk.datamodel.interfaces.StatementGroup;
 import org.wikidata.wdtk.datamodel.interfaces.StringValue;
+import org.wikidata.wdtk.wikibaseapi.WbSearchEntitiesResult;
 import org.wikidata.wdtk.wikibaseapi.WikibaseDataFetcher;
 
 public class WikiUtils
@@ -69,9 +83,8 @@ public class WikiUtils
 
     }
 
-    public static interface SearchResult extends Iterable<Item>
+    public static interface SearchResult extends Streamable<Item>
     {
-        public Stream<Item> stream();
     }
 
     public static interface Item
@@ -92,7 +105,34 @@ public class WikiUtils
 
         public Optional<String> getCity();
 
-        public Optional<StatementResult> getStatement(SPARQLProperties officialWebsite);
+        public String getEntityId();
+
+        public Optional<StatementResult> getStatement(SPARQLProperties sparqlProperties);
+
+        public Stream<Item> getInstanceOf();
+
+        public Stream<Item> getExactInstanceOf();
+
+        /**
+         * <a href="https://www.wikidata.org/wiki/Property:P460">Wiki</a>
+         * 
+         * @return
+         */
+        public Stream<Item> getSaidToBeSameAs();
+
+        /**
+         * <a href="https://www.wikidata.org/wiki/Property:P279">Wiki</a>
+         * 
+         * @return
+         */
+        public Stream<Item> getSubclassOf();
+
+        /**
+         * <a href="https://www.wikidata.org/wiki/Property:P425">Wiki</a>
+         * 
+         * @return
+         */
+        public Stream<Item> getFieldOfOccupation();
 
         public static interface StatementResult
         {
@@ -190,49 +230,31 @@ public class WikiUtils
         {
             try
             {
-                System.out.println("*** Fetching data for one entity:");
-                EntityDocument q42 = this.fetcher.apply(Arrays.asList("Q42"))
-                                                 .get("Q42");
-                System.out.println("The current revision of the data for entity Q42 is " + q42.getRevisionId());
-                if (q42 instanceof ItemDocument)
-                {
-                    System.out.println("The English name for entity Q42 is " + ((ItemDocument) q42).getLabels()
-                                                                                                   .get(DEFAULT_LANGUAGE.getKey())
-                                                                                                   .getText());
-
-                    ItemDocument document = (ItemDocument) q42;
-                    Map<String, SiteLink> siteLinks = document.getSiteLinks();
-                    System.out.println(JSONHelper.prettyPrint(siteLinks));
-
-                    document.getAllStatements()
-                            .forEachRemaining(statement ->
-                            {
-                                System.out.println("" + statement.getSubject() + statement.getValue());
-                            });
-
-                }
-
-                //                WbGetEntitiesSearchData properties = new WbGetEntitiesSearchData();
-                //                properties.search = "human";
-                //                properties.type = "item";
-                //                properties.limit = 10l;
-                //                properties.language = DEFAULT_LANGUAGE.name()
-                //                                                      .toLowerCase();
-                //                this.fetcher.searchEntities(properties)
-                //                            .forEach(result ->
-                //                            {
-                //                                System.out.println(result.getEntityId() + ":" + result.getLabel());
-                //
-                //                            });
-
-                System.out.println("*** Done.");
+                Function<String, List<String>> queryFunction = CacheUtils.newLocalJsonFolderCache("wikiSearch")
+                                                                         .<List<String>>asUnaryCache(List.class)
+                                                                         .asSuppliedFunction(iQuery ->
+                                                                         {
+                                                                             try
+                                                                             {
+                                                                                 return WikibaseDataFetcher.getWikidataDataFetcher()
+                                                                                                           .searchEntities(iQuery)
+                                                                                                           .stream()
+                                                                                                           .map(WbSearchEntitiesResult::getEntityId)
+                                                                                                           .filter(PredicateUtils.notBlank())
+                                                                                                           .collect(Collectors.toList());
+                                                                             }
+                                                                             catch (Exception e)
+                                                                             {
+                                                                                 throw new IllegalStateException(e);
+                                                                             }
+                                                                         });
+                List<String> entityIds = queryFunction.apply(query);
+                return this.newSearchResult(StreamUtils.framedNonNullAsList(25, entityIds.stream()));
             }
             catch (Exception e)
             {
                 throw new IllegalStateException(e);
             }
-
-            return null;
         }
 
         @Override
@@ -262,13 +284,6 @@ public class WikiUtils
         {
             return new SearchResult()
             {
-                @Override
-                public Iterator<Item> iterator()
-                {
-                    return this.stream()
-                               .iterator();
-                }
-
                 @Override
                 public Stream<Item> stream()
                 {
@@ -393,6 +408,7 @@ public class WikiUtils
             @Override
             public Optional<String> getTitle(LanguageProvider language)
             {
+
                 return Optional.ofNullable(this.itemDocumentResolver.apply(this.entityId))
                                .map(ItemDocument::getLabels)
                                .map(labels -> labels.get(language.getKey()))
@@ -402,8 +418,32 @@ public class WikiUtils
             @Override
             public Optional<String> resolveText()
             {
-                return this.getTitle()
-                           .map(title -> WikiAccessorImpl.this.resolveWikiText(title));
+                try
+                {
+                    String title = Optional.ofNullable(this.itemDocumentResolver.apply(this.entityId))
+                                           .map(document -> document.getSiteLinks())
+                                           .map(links -> links.get("enwiki"))
+                                           .map(link -> link.getPageTitle())
+                                           .orElseGet(() -> this.getTitle()
+                                                                .orElse(null));
+                    //
+                    //                    String url = "https://www.wikidata.org/w/api.php?action=wbgetentities&sites=" + siteKey + "&titles=" + pageTitle + "&languages="
+                    //                            + language.getKey();
+
+                    return Optional.ofNullable(title)
+                                   .map(t -> WikiAccessorImpl.this.resolveWikiText(t));
+                }
+                catch (RESTAccessExeption e)
+                {
+                    if (e.getStatusCode() == 404)
+                    {
+                        return Optional.empty();
+                    }
+                    else
+                    {
+                        throw e;
+                    }
+                }
             }
 
             @Override
@@ -447,12 +487,63 @@ public class WikiUtils
             }
 
             @Override
+            public Stream<Item> getInstanceOf()
+            {
+                return this.getStatements(SPARQLProperties.INSTANCE_OF)
+                           .map(StatementResult::asItem);
+            }
+
+            @Override
+            public Stream<Item> getExactInstanceOf()
+            {
+                return this.getStatements(SPARQLProperties.EXACT_INSTANCE_OF)
+                           .map(StatementResult::asItem);
+            }
+
+            @Override
+            public Stream<Item> getFieldOfOccupation()
+            {
+                return this.getStatements(SPARQLProperties.FIELD_OF_THIS_OCCUPATION)
+                           .map(StatementResult::asItem);
+            }
+
+            @Override
+            public Stream<Item> getSaidToBeSameAs()
+            {
+                return this.getStatements(SPARQLProperties.SAID_TO_BE_SAME_AS)
+                           .map(StatementResult::asItem);
+            }
+
+            @Override
+            public Stream<Item> getSubclassOf()
+            {
+                return this.getStatements(SPARQLProperties.SUBCLASS_OF)
+                           .map(StatementResult::asItem);
+            }
+
+            @Override
             public Optional<StatementResult> getStatement(SPARQLProperties property)
             {
-                Statement statement = this.itemDocumentResolver.apply(this.entityId)
-                                                               .findStatement(ListUtils.first(property.get()));
+                return this.getStatements(property)
+                           .findFirst();
+            }
 
-                return Optional.ofNullable(statement)
+            public Stream<StatementResult> getStatements(SPARQLProperties property)
+            {
+                return Optional.ofNullable(property)
+                               .map(SPARQLProperties::get)
+                               .map(List::stream)
+                               .orElse(Stream.empty())
+                               .flatMap(propertyId ->
+                               {
+                                   ItemDocument itemDocument = this.itemDocumentResolver.apply(this.entityId);
+                                   return Optional.ofNullable(itemDocument)
+                                                  .map(document -> document.findStatementGroup(propertyId))
+                                                  .map(StatementGroup::getStatements)
+                                                  .map(List::stream)
+                                                  .orElse(Stream.empty());
+                               })
+                               .filter(PredicateUtils.notNull())
                                .map(iStatement -> new StatementResult()
                                {
                                    @Override
@@ -476,6 +567,12 @@ public class WikiUtils
                                                       .orElse(null);
                                    }
                                });
+            }
+
+            @Override
+            public String getEntityId()
+            {
+                return this.entityId;
             }
         }
     }
