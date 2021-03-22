@@ -81,6 +81,8 @@ public class WikiUtils
 
         public SearchResult searchFor(SPARQLPropertyValueProvider property, SPARQLObjectValueProvider object);
 
+        Optional<Item> findByEntityId(String entityId);
+
     }
 
     public static interface SearchResult extends Streamable<Item>
@@ -292,14 +294,7 @@ public class WikiUtils
 
                 private Stream<Item> newItemBlock(List<String> entityIds)
                 {
-                    CachedElement<Map<String, ItemDocument>> entityIdToItemDocument = CachedElement.of(() -> WikiAccessorImpl.this.fetcher.apply(entityIds));
-                    Function<String, ItemDocument> itemDocumentResolver = entityId ->
-                    {
-                        return Optional.ofNullable(entityIdToItemDocument.get()
-                                                                         .get(entityId))
-                                       .orElseGet(() -> WikiAccessorImpl.this.fetcher.apply(Arrays.asList(entityId))
-                                                                                     .get(entityId));
-                    };
+                    ItemDocumentResolver itemDocumentResolver = new ItemDocumentResolver(entityIds, WikiAccessorImpl.this.fetcher);
                     return entityIds.stream()
                                     .map(entityId -> this.newItem(entityId, itemDocumentResolver));
                 }
@@ -310,6 +305,29 @@ public class WikiUtils
                 }
 
             };
+        }
+
+        protected static class ItemDocumentResolver implements Function<String, ItemDocument>
+        {
+            private CachedElement<Map<String, ItemDocument>> entityIdToItemDocument;
+            private ItemDocumentFetcher                      fetcher;
+
+            public ItemDocumentResolver(List<String> entityIds, ItemDocumentFetcher fetcher)
+            {
+                super();
+                this.fetcher = fetcher;
+                this.entityIdToItemDocument = CachedElement.of(() -> fetcher.apply(entityIds));
+            }
+
+            @Override
+            public ItemDocument apply(String entityId)
+            {
+                return Optional.ofNullable(this.entityIdToItemDocument.get()
+                                                                      .get(entityId))
+                               .orElseGet(() -> this.fetcher.apply(Arrays.asList(entityId))
+                                                            .get(entityId));
+            }
+
         }
 
         private String determineEntityIdFromUrl(String entityUrl)
@@ -336,6 +354,25 @@ public class WikiUtils
         public SearchResult searchFor(SPARQLPropertyValueProvider property, SPARQLObjectValueProvider object)
         {
             return this.searchFor(SPARQLFilterValueProvider.of(property, object));
+        }
+
+        @Override
+        public Optional<Item> findByEntityId(String entityId)
+        {
+            ItemDocumentResolver itemDocumentResolver = new ItemDocumentResolver(Arrays.asList(entityId), this.fetcher);
+            if (itemDocumentResolver.apply(entityId) != null)
+            {
+                return Optional.of(this.newItem(entityId, itemDocumentResolver));
+            }
+            else
+            {
+                return Optional.empty();
+            }
+        }
+
+        private Item newItem(String entityId, Function<String, ItemDocument> itemDocumentResolver)
+        {
+            return new ItemImpl(entityId, itemDocumentResolver);
         }
 
         @Override
